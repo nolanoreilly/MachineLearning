@@ -4,26 +4,223 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
+library(class) # for KNN
+library(MASS) # for LDA and QDA
+library(randomForest)
+library(pROC)
+
+income_data <- read_csv("data/income_evaluation.csv", col_names = TRUE, col_types = cols(
+  # define the character columns as factors
+    age = col_double(),
+    workclass = col_factor(),
+    fnlwgt = col_double(),
+    education = col_factor(),
+    `education-num` = col_double(),
+    `marital-status` = col_factor(),
+    occupation = col_factor(),
+    relationship = col_factor(),
+    race = col_factor(),
+    sex = col_factor(),
+    `capital-gain` = col_double(),
+    `capital-loss` = col_double(),
+    `hours-per-week` = col_double(),
+    `native-country` = col_factor(),
+    income = col_factor()
+  )) %>% 
+  mutate(
+    
+    immigrant = ifelse(`native-country` != "United-States", 1, 0)
+    
+  )
+
+attach(income_data)
 ```
 
-## R Markdown
+### Bayes' Classifier
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+The Bayes' classifier, in simplest terms, assigns each observation to the most likely class given its predictor values. It does this by computing the conditional probability:
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+$$\operatorname{Pr}(Y=j | X = x_0)$$ 
 
-```{r cars}
-summary(cars)
+Where $Y$ is the response variable and $j$ is the specific class that it belongs to. This is all given $x_0$, the vector of predictors. For each value of each predictor, there is a different probability of the response variable belonging to a specific class. When the above equation is >50% is when it gets assigned to class $j$.
+
+The Bayes' classifier always produces the lowest error (analagous to the irreducible error rate) rate which is defined as
+
+$$1-E\left(\max _{j} \operatorname{Pr}(Y=j | X)\right)$$
+
+but is not equal to 0 because there is always some overlap of the classes. In reality, we never really know the true conditional distriution of $Y$ given $X$, so many other methods attempt to estimate this, and then classify an observation to the class with the highest probability. Thus, the Bayes' classifier is simply a "gold standard" for which to compare other methods to.
+
+### K-Nearest Neighbours (KNN)
+
+In KNN, a test observation $x_0$ is selected, and a positive integer $K$ is chosen as the number of closest points to $x_0$ for which to estimate the conditional probability, by taking the fraction of points in the neighbourhood around $x_0$, defined as the set $\mathcal{N}_0$ whose response values are class $j$
+
+$$\operatorname{Pr}\left(Y=j | X=x_{0}\right)=\frac{1}{K} \sum_{i \in \mathcal{N}_{0}} I\left(y_{i}=j\right)$$
+
+For example, if we set $K = 10$, then the model will look for the 10 closest points to $x_0$, then check the proportions of how many observations are assigned to each class, and then assign $x_0$ to the class with the highest probability. 
+
+The smaller $K$ is, the the more flexible the model becomes and the more non-linear the decision boundary becomes. The opposite is true as $K$ gets large. The method for choosing $K$ is discussed in the next chapter, which is a very important part of this process as the results drastically change depending on what the value for $K$ is. 
+
+
+
+### Logistic Regression
+
+
+### Linear Discriminant Analysis
+
+### Quadratic Discriminant Analysis
+
+### Evaluation Methods
+
+# Applications
+
+## Data 
+
+The dataset we used for this was a dataset on incomes in the United States, defined as whether or not a persons income is above $50,000. The predictors included in this dataset are: 
+
+* Education
+```{r echo=FALSE}
+levels(education)
 ```
 
-## Including Plots
-
-You can also embed plots, for example:
-
-```{r pressure, echo=FALSE}
-plot(pressure)
+* Race
+```{r echo=FALSE}
+levels(race)
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+* Sex 
+```{r echo=FALSE}
+levels(sex)
+```
+
+* Occupation
+```{r echo=FALSE}
+levels(occupation)
+```
+
+* Hours worked per week (Integer)
+
+* Immigrant status (dummy variable for whether or not someone was born in the US)
+
+### K-Nearest Neighbours
+
+```{r}
+
+set.seed(1) # need to run this so that it can break ties when points are equidistant by randomly choosing which ones to include
+
+predictors <- cbind(race, education, `hours-per-week`, occupation, sex, immigrant)
+
+
+knn1 <- knn(predictors, predictors, income, k = 10)
+
+
+```
+
+
+
+```{r echo=FALSE}
+table(knn1, income)
+
+mean(knn1 == income)
+```
+
+
+
+
+### Logistic Regression
+
+```{r}
+
+logistic1 <- glm(income ~ race + education + sex + `hours-per-week` + occupation + immigrant, data = income_data, family = binomial)
+
+summary(logistic1)
+
+
+contrasts(income) # shows us break down of y variable to confirm which one we are predicting as "1" in the regression.
+
+
+```
+
+```{r include=FALSE}
+
+logistic_probs <- predict(logistic1, type = "response")
+
+logistic_predictions <- rep("<=50K", nrow(income_data))
+logistic_predictions[logistic_probs > 0.5] <- ">50K"
+
+```
+
+
+Below is the confusion matrix for this application
+
+```{r echo=FALSE}
+
+# confusion matrix - main diagonal is correct predictions
+logistic_confusion <- table(logistic_predictions, income)
+logistic_confusion
+```
+
+The specificity for this model is:
+```{r echo=FALSE}
+specificity <- logistic_confusion[1,1]/(logistic_confusion[1, 1] + logistic_confusion[2,1])
+specificity
+```
+
+The sensitivity for this model is:
+```{r echo = FALSE}
+sensitivity <- logistic_confusion[1,2]/(logistic_confusion[1, 1] + logistic_confusion[2,2])
+sensitivity
+```
+
+The total proportion of correct predictions is:
+```{r echo=FALSE}
+
+mean_logistic <- mean(logistic_predictions == income)
+mean_logistic
+```
+
+The proportion of correct predictions from a trivial model which only predicts "<=50K" everytime would be:
+```{r include=FALSE}
+total_below <- sum(logistic_confusion[,1])
+total_above <- sum(logistic_confusion[,2])
+
+total_below/(total_above + total_below)
+```
+So then this model only improves upon a trivial model by roughly 4%.
+
+
+### Linear Discriminant Analysis
+
+
+```{r}
+
+lda1 <- lda(income ~ race + education + sex + `hours-per-week` + occupation + immigrant, data = income_data)
+
+lda_predictions <- predict(lda1, income)
+
+lda_class <- lda_predictions$class
+
+table(lda_class, income)
+
+mean(lda_class == income)
+
+```
+
+
+### Quadratic Discriminant Analysis
+
+For QDA, we had to remove **education** do to collinearity with the other variables, as the model could not compute with this variable included.
+```{r}
+qda1 <- qda(income ~ race + `hours-per-week` + occupation + sex + immigrant, data = income_data) # removed education because it was too correlated with race
+
+qda_predictions <- predict(qda1, income)
+
+qda_class <- qda_predictions$class
+
+table(qda_class, income)
+
+mean(qda_class == income)
+```
+
+
+
